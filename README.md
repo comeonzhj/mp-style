@@ -4,6 +4,8 @@
 
 原生 SwiftUI 单窗口应用，**没有 Electron、没有运行时依赖**，二进制约 900KB。
 
+![界面](docs/screenshot.png)
+
 排版基准取自一篇实际发布的公众号文章，并按需求做了定制改造，
 详见 [`docs/baseline-style.md`](docs/baseline-style.md)。
 
