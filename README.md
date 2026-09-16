@@ -97,11 +97,13 @@ Tests/
 ├── main.swift                渲染 CLI + 规则断言（make test）
 ├── sample.md                 校验用样例
 ├── ui-snapshot/              界面快照工具（make snapshot）
+├── hardened-check/           强化运行时 + WKWebView JS 自检（make hardened-check）
 └── clipboard-check/          剪贴板验证工具（make copy-check）
 
 scripts/
-├── gen-buildinfo.sh          版本号注入
-└── make-icon.py              生成 AppIcon.icns
+├── gen-buildinfo.sh              版本号注入
+├── make-icon.py                  生成 AppIcon.icns
+└── store-notary-credentials.sh   交互式存入公证凭据
 ```
 
 **分层原则**：`Markdown` / `Render` / `Model` 三层不依赖任何 UI 框架，
@@ -110,17 +112,79 @@ scripts/
 ## 构建
 
 ```bash
-make build        # 编译出 build/MPStyle.app
+make build        # 编译出 build/MPStyle.app（自动用 Developer ID 签名）
 make run          # 编译并启动
 make test         # 渲染校验 + 规则断言
 make snapshot     # 离屏渲染界面 PNG 到 Tests/out/ui.png
+make hardened-check  # 验证强化运行时下 WKWebView 的 JS 仍能执行
 make copy-check   # 把渲染结果写进剪贴板，验证 public.html
 make icon         # 重新生成图标（需要 Pillow）
+make doctor       # 自检证书 / Team ID / 公证凭据是否就绪
 make install      # 安装到 /Applications
-make release      # 打包 zip
 make clean        # 清理
 make info         # 查看版本 / 源码规模
 ```
+
+## 签名、公证与分发
+
+产出的 `.app` / `.dmg` 已用 Developer ID 签名并通过 Apple 公证，
+**别人下载后双击即可打开**，不会有「已损坏，无法打开」或「来自身份不明的开发者」提示。
+
+### 一次性配置
+
+```bash
+make doctor          # 先看证书和凭据状态
+make credentials     # 交互式输入 Apple ID + App 专用密码，存进钥匙串
+```
+
+`make credentials` 走 `read -s` 交互输入，密码不会出现在命令行参数里
+（否则会泄漏到 `ps` 输出和 shell 历史）。
+App 专用密码在 [account.apple.com](https://account.apple.com) → 登录与安全 → App 专用密码 生成，
+**不是**账号登录密码。
+
+### 发布
+
+```bash
+make release
+```
+
+七步全自动：
+
+```
+1/7 强化运行时自检        ← 确认签名后 WKWebView 的 JS 没被 JIT 限制拦掉
+2/7 构建 + Developer ID 签名（--options runtime --timestamp）
+3/7 提交 Apple 公证 .app
+4/7 装订公证票据到 .app
+5/7 生成 DMG 并签名
+6/7 提交 Apple 公证 DMG + 装订
+7/7 Gatekeeper 评估
+```
+
+产出：
+
+| 文件 | 说明 |
+|---|---|
+| `build/MPStyle-<版本>.dmg` | 推荐分发。双击挂载，拖进「应用程序」 |
+| `build/MPStyle.app` | 已公证并装订，可直接压缩分发 |
+
+### 几个必须记住的点
+
+**顺序不能乱：建 DMG → 签名 → 公证 → 装订。**
+`codesign` 会重写文件、清掉已装订的票据；公证后再重新编译同样会让 cdhash 变化、
+票据失效。所以 `dmg` 目标刻意**不依赖 `build`**，打包的永远是当前那份已装订的产物。
+
+**DMG 必须单独签名。** 公证 ≠ 签名。只公证不签名的 DMG 会被 `spctl` 判为
+`no usable signature`，必须额外 `codesign --sign` 一次。
+
+**装订（staple）决定离线可用性。** 票据烙进产物后，用户断网首次打开也不会被
+Gatekeeper 拦。只公证不装订的话，首次启动需要联网向 Apple 查询。
+
+**不需要任何 entitlements。** 应用非沙盒，预览用的 WKWebView 在强化运行时下
+JavaScript 执行正常（`make hardened-check` 会验证这条链路）。加
+`com.apple.security.cs.allow-jit` 之类的授权反而会放宽安全边界。
+
+**没有 Developer ID 证书的机器上**，`make build` 会自动退回 ad-hoc 签名，
+本地开发照常；`make release` 会明确报错退出，不会产出假装能分发的包。
 
 ### 两个构建环境相关的坑
 

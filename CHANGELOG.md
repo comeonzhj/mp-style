@@ -15,6 +15,17 @@
   各级标题缩放比、列表缩进、背景卡片开关。配置自动持久化到 UserDefaults。
 - 内置 6 套主题色预设。
 
+### 分发
+- Developer ID 签名 + Apple 公证 + 票据装订，全流程由 `make release` 一条命令完成。
+- 开启强化运行时（hardened runtime）并打 Apple 可信时间戳。
+- `.app` 与 `.dmg` 双产物，均已公证装订 —— 别人下载后双击即可打开，
+  断网首次启动也不会被 Gatekeeper 拦。
+- 新增 `make hardened-check`：验证强化运行时下 WKWebView 的 JavaScript 仍能执行。
+  预览面板依赖 `evaluateJavaScript` 注入内容，被 JIT 限制拦掉会静默变空白，
+  因此这一项已固化进发布流程。结论是不需要任何额外 entitlements。
+- 新增 `make doctor` 环境自检、`make credentials` 交互式存入公证凭据
+  （密码走 `read -s`，不进命令行参数）。
+
 ### 排版规则（基于参考文章 `mp.weixin.qq.com/s/Jdg8uvL_qSvPAu3zjY7gNg`）
 - 正文 `font-weight: 100`，行高 1.8，字距 0.1em，颜色 `#333333`，两端对齐。
 - 加粗 `font-weight: 500` + 主题色。

@@ -30,17 +30,61 @@ UI_SOURCES   = $(shell find Sources/Markdown Sources/Render Sources/Model Source
 TEST_BIN     := $(BUILD_DIR)/render-cli
 SNAPSHOT_BIN := $(BUILD_DIR)/ui-snapshot
 COPY_BIN     := $(BUILD_DIR)/copy-check
+HARDENED_BIN := $(BUILD_DIR)/hardened-check
 
-.PHONY: all build buildinfo run test snapshot copy-check icon clean install uninstall release info
+# ══════════════════════════════════════════════════════════════════════
+#  签名与公证
+# ══════════════════════════════════════════════════════════════════════
+# 自动挑 Developer ID Application 证书。找不到就退回 ad-hoc：
+# 本地能跑，但拷给别人会被 Gatekeeper 拦下（"已损坏，无法打开"）。
+SIGN_IDENTITY ?= $(shell security find-identity -v -p codesigning 2>/dev/null \
+                  | grep -m1 "Developer ID Application" \
+                  | sed -E 's/^[^"]*"([^"]*)".*/\1/')
+
+# 从证书主题里取 Team ID（形如 UID=XXXXXXXXXX）
+TEAM_ID       ?= $(shell security find-certificate -c "Developer ID Application" -p 2>/dev/null \
+                  | openssl x509 -noout -subject 2>/dev/null \
+                  | sed -nE 's/.*\(([A-Z0-9]{10})\).*/\1/p' | head -1)
+
+# 公证凭据在钥匙串里的 profile 名。执行 `make credentials` 交互式写入一次即可。
+# 密码不会经过命令行参数，避免泄漏到 `ps` 输出和 shell 历史。
+NOTARY_PROFILE ?= $(BUNDLE_ID)
+
+ifeq ($(strip $(SIGN_IDENTITY)),)
+  SIGN_ARGS := --force --sign -
+  SIGN_DESC := ad-hoc
+  SIGN_OK   := 0
+else
+  # --options runtime 开启强化运行时，这是公证的硬性前提
+  # --timestamp 打 Apple 可信时间戳，证书过期后旧签名依然有效
+  SIGN_ARGS := --force --options runtime --timestamp --sign "$(SIGN_IDENTITY)"
+  SIGN_DESC := $(SIGN_IDENTITY)
+  SIGN_OK   := 1
+endif
+
+# 没有 Developer ID 证书时统一用这段提示退出。
+# 不封装成 define 变量：变量展开后行首的 @ 不会被 make 识别，命令会被原样丢给 shell。
+# 直接内联，两处各写一遍，少一层魔法。
+
+NOTARIZE_ZIP := $(BUILD_DIR)/$(APP_NAME)-$(VERSION)-notarize.zip
+DMG          := $(BUILD_DIR)/$(APP_NAME)-$(VERSION).dmg
+DMG_STAGE    := $(BUILD_DIR)/dmg-stage
+
+.PHONY: all build buildinfo run test snapshot copy-check hardened-check icon clean \
+        install uninstall info sign verify notarize staple dmg release credentials doctor
 
 all: build
+
+# ══════════════════════════════════════════════════════════════════════
+#  构建
+# ══════════════════════════════════════════════════════════════════════
 
 ## 生成 BuildInfo.swift（版本号 + 构建时间 + git hash）。
 ## 做成 .PHONY 是因为 git hash 会随提交变化，必须每次构建都重新生成。
 buildinfo:
 	@scripts/gen-buildinfo.sh
 
-## 编译并组装 .app
+## 编译并组装 .app（自动签名）
 build: buildinfo
 	@mkdir -p $(APP_BUNDLE)/Contents/MacOS $(APP_BUNDLE)/Contents/Resources
 	@echo "==> 编译 $(APP_NAME) v$(VERSION)"
@@ -49,13 +93,24 @@ build: buildinfo
 	@/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $(VERSION)" $(INFO_PLIST) 2>/dev/null || true
 	@/usr/libexec/PlistBuddy -c "Set :CFBundleVersion $(VERSION)" $(INFO_PLIST) 2>/dev/null || true
 	@if [ -f Resources/AppIcon.icns ]; then cp Resources/AppIcon.icns $(APP_BUNDLE)/Contents/Resources/; fi
-	@codesign --force --deep --sign - $(APP_BUNDLE) 2>/dev/null || true
+	@$(MAKE) --no-print-directory sign
 	@echo "==> 完成: $(APP_BUNDLE) ($$(du -sh $(APP_BUNDLE) | cut -f1))"
+
+## 对 .app 签名
+sign:
+	@xattr -cr $(APP_BUNDLE) 2>/dev/null || true
+	@codesign $(SIGN_ARGS) $(APP_BUNDLE)
+	@codesign --verify --strict $(APP_BUNDLE)
+	@echo "==> 已签名: $(SIGN_DESC)"
 
 ## 构建并启动
 run: build
 	@echo "==> 启动"
 	@open $(APP_BUNDLE)
+
+# ══════════════════════════════════════════════════════════════════════
+#  校验工具
+# ══════════════════════════════════════════════════════════════════════
 
 ## 命令行渲染测试：把样例 Markdown 渲染成 HTML，便于脱离 GUI 校验排版
 test: buildinfo
@@ -88,6 +143,132 @@ copy-check: buildinfo
 icon:
 	@python3 scripts/make-icon.py 2>/dev/null && echo "==> 图标已生成" || echo "==> 跳过图标（缺 Pillow）"
 
+## 强化运行时自检：确认开启 hardened runtime 之后 WKWebView 的 JavaScript 仍能执行。
+## 预览面板依赖 evaluateJavaScript 注入内容，万一被 JIT 限制拦掉会静默变空白，
+## 所以发布前必须过这一关。有 Developer ID 时用发布同款签名参数复测。
+hardened-check:
+	@mkdir -p $(BUILD_DIR)
+	@echo "==> 编译强化运行时自检工具"
+	@$(SWIFTC) -disable-sandbox -swift-version 5 -O -parse-as-library \
+		Tests/hardened-check/HardenedCheck.swift -o $(HARDENED_BIN) \
+		-framework WebKit -framework AppKit
+	@if [ "$(SIGN_OK)" = "1" ]; then \
+		cp -f $(HARDENED_BIN) $(HARDENED_BIN).signed; \
+		codesign --force --options runtime --timestamp --sign "$(SIGN_IDENTITY)" $(HARDENED_BIN).signed; \
+		echo "==> 用发布同款签名参数复测"; \
+		$(HARDENED_BIN).signed; \
+	else \
+		echo "==> 无 Developer ID 证书，只跑未签名基线"; \
+		$(HARDENED_BIN); \
+	fi
+
+# ══════════════════════════════════════════════════════════════════════
+#  签名 / 公证 / 分发
+# ══════════════════════════════════════════════════════════════════════
+
+## 查看签名详情
+verify:
+	@echo "==> 签名信息"
+	@codesign -dv --verbose=4 $(APP_BUNDLE) 2>&1 \
+		| grep -E "Identifier|TeamIdentifier|Authority|TeamName|Timestamp|flags" || true
+	@echo "==> 严格校验"
+	@codesign --verify --strict --verbose=2 $(APP_BUNDLE) && echo "签名有效"
+	@echo "==> Gatekeeper 评估"
+	@spctl -a -vvv -t exec $(APP_BUNDLE) 2>&1 || true
+
+## 一次性把公证凭据存进钥匙串（交互式输入，密码不经过命令行参数与 shell 历史）
+credentials:
+	@scripts/store-notary-credentials.sh "$(NOTARY_PROFILE)"
+
+## 提交 Apple 公证（会自动等待结果）
+notarize:
+	@test "$(SIGN_OK)" = "1" || { \
+		echo "✗ 没找到 Developer ID Application 证书，无法产出可分发的版本。"; \
+		echo "  本地开发用 make build 即可（会自动退回 ad-hoc 签名）。"; \
+		exit 1; }
+	@rm -f $(NOTARIZE_ZIP)
+	@echo "==> 打包待公证"
+	@ditto -c -k --keepParent $(APP_BUNDLE) $(NOTARIZE_ZIP)
+	@echo "==> 提交公证（通常 1~5 分钟）"
+	@xcrun notarytool submit $(NOTARIZE_ZIP) --keychain-profile "$(NOTARY_PROFILE)" --wait
+	@rm -f $(NOTARIZE_ZIP)
+
+## 装订公证票据到 .app
+staple:
+	@xcrun stapler staple $(APP_BUNDLE)
+	@xcrun stapler validate $(APP_BUNDLE)
+
+## 打成 DMG（并用 Developer ID 签名）
+##
+## 注意两件事：
+## 1. 这里刻意不依赖 build —— 若在公证、装订之后再重新编译签名，
+##    cdhash 会变化，已装订的公证票据立刻失效。DMG 必须基于当前那份已装订的 .app。
+## 2. DMG 必须单独签名。公证 ≠ 签名，只公证不签名的 DMG 会被 spctl 判为
+##    "no usable signature"。而且签名会覆盖/清掉已有票据，所以顺序只能是
+##    建 DMG → 签名 → 公证 → 装订。
+dmg:
+	@test -d $(APP_BUNDLE) || { echo "✗ 还没有 $(APP_BUNDLE)，先跑 make build"; exit 1; }
+	@rm -rf $(DMG_STAGE) $(DMG)
+	@mkdir -p $(DMG_STAGE)
+	@cp -R $(APP_BUNDLE) $(DMG_STAGE)/
+	@ln -s /Applications $(DMG_STAGE)/Applications
+	@hdiutil create -volname "$(DISPLAY_NAME) $(VERSION)" -srcfolder $(DMG_STAGE) \
+		-ov -format UDZO -quiet $(DMG)
+	@rm -rf $(DMG_STAGE)
+	@if [ "$(SIGN_OK)" = "1" ]; then \
+		codesign --force --timestamp --sign "$(SIGN_IDENTITY)" $(DMG); \
+	fi
+	@echo "==> $(DMG) ($$(du -sh $(DMG) | cut -f1))"
+
+## 一键发布：签名 → 公证 App → 装订 → 打 DMG → 公证 DMG → 装订 → Gatekeeper 评估
+release:
+	@test "$(SIGN_OK)" = "1" || { \
+		echo "✗ 没找到 Developer ID Application 证书，无法产出可分发的版本。"; \
+		echo "  本地开发用 make build 即可（会自动退回 ad-hoc 签名）。"; \
+		exit 1; }
+	@echo "═══ 1/7 强化运行时自检"
+	@$(MAKE) --no-print-directory hardened-check
+	@echo "═══ 2/7 构建 + 签名"
+	@$(MAKE) --no-print-directory build
+	@echo "═══ 3/7 公证 .app"
+	@$(MAKE) --no-print-directory notarize
+	@echo "═══ 4/7 装订票据到 .app"
+	@$(MAKE) --no-print-directory staple
+	@echo "═══ 5/7 生成 DMG"
+	@$(MAKE) --no-print-directory dmg
+	@echo "═══ 6/7 公证 DMG"
+	@xcrun notarytool submit $(DMG) --keychain-profile "$(NOTARY_PROFILE)" --wait
+	@xcrun stapler staple $(DMG)
+	@xcrun stapler validate $(DMG)
+	@echo "═══ 7/7 Gatekeeper 评估"
+	@echo "-- .app（决定别人能不能打开的那一项）"
+	@spctl -a -vvv -t exec $(APP_BUNDLE)
+	@echo "-- DMG"
+	@spctl -a -vvv -t install $(DMG) || true
+	@echo "-- 公证票据"
+	@xcrun stapler validate $(APP_BUNDLE) >/dev/null && echo "  ✓ .app 已装订"
+	@xcrun stapler validate $(DMG) >/dev/null && echo "  ✓ DMG 已装订"
+	@echo
+	@echo "完成。分发文件："
+	@echo "  $(DMG)                                （磁盘映像，推荐）"
+	@echo "  $(APP_BUNDLE)                         （已公证并装订，可直接压缩分发）"
+
+## 环境自检：证书、Team ID、公证凭据是否就绪
+doctor:
+	@echo "── 代码签名证书 ──────────────────────"
+	@security find-identity -v -p codesigning 2>/dev/null || echo "（无）"
+	@echo
+	@echo "── 本次构建将使用的身份 ──────────────"
+	@echo "  $(SIGN_DESC)"
+	@echo "  Team ID: $(if $(TEAM_ID),$(TEAM_ID),（未取到）)"
+	@echo
+	@echo "── 公证凭据 ──────────────────────────"
+	@xcrun notarytool history --keychain-profile "$(NOTARY_PROFILE)" 2>&1 | head -3
+
+# ══════════════════════════════════════════════════════════════════════
+#  其它
+# ══════════════════════════════════════════════════════════════════════
+
 ## 安装到 /Applications
 install: build
 	@rm -rf /Applications/$(APP_NAME).app
@@ -98,15 +279,11 @@ uninstall:
 	@rm -rf /Applications/$(APP_NAME).app
 	@echo "==> 已卸载"
 
-## 打包为 zip 供分发
-release: build
-	@cd $(BUILD_DIR) && zip -qry $(APP_NAME)-$(VERSION).zip $(APP_NAME).app
-	@echo "==> $(BUILD_DIR)/$(APP_NAME)-$(VERSION).zip"
-
 info:
 	@echo "版本    : $(VERSION)"
 	@echo "Bundle  : $(BUNDLE_ID)"
 	@echo "最低系统: macOS $(MIN_MACOS)"
+	@echo "签名身份: $(SIGN_DESC)"
 	@echo "源码数  : $$(echo $(ALL_SOURCES) | wc -w | tr -d ' ')"
 
 clean:
