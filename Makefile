@@ -31,16 +31,17 @@ TEST_BIN     := $(BUILD_DIR)/render-cli
 SNAPSHOT_BIN := $(BUILD_DIR)/ui-snapshot
 COPY_BIN     := $(BUILD_DIR)/copy-check
 
-.PHONY: all build run test snapshot copy-check icon clean install uninstall release info
+.PHONY: all build buildinfo run test snapshot copy-check icon clean install uninstall release info
 
 all: build
 
-## 生成 BuildInfo.swift（版本号注入）
-Sources/BuildInfo.swift: VERSION scripts/gen-buildinfo.sh
+## 生成 BuildInfo.swift（版本号 + 构建时间 + git hash）。
+## 做成 .PHONY 是因为 git hash 会随提交变化，必须每次构建都重新生成。
+buildinfo:
 	@scripts/gen-buildinfo.sh
 
 ## 编译并组装 .app
-build: Sources/BuildInfo.swift
+build: buildinfo
 	@mkdir -p $(APP_BUNDLE)/Contents/MacOS $(APP_BUNDLE)/Contents/Resources
 	@echo "==> 编译 $(APP_NAME) v$(VERSION)"
 	@$(SWIFTC) $(SWIFT_FLAGS) $(FRAMEWORKS) $(ALL_SOURCES) -o $(APP_BIN)
@@ -57,7 +58,7 @@ run: build
 	@open $(APP_BUNDLE)
 
 ## 命令行渲染测试：把样例 Markdown 渲染成 HTML，便于脱离 GUI 校验排版
-test: Sources/BuildInfo.swift
+test: buildinfo
 	@mkdir -p $(BUILD_DIR) Tests/out
 	@echo "==> 编译渲染命令行工具"
 	@$(SWIFTC) -disable-sandbox -swift-version 5 -O $(CORE_SOURCES) Tests/main.swift -o $(TEST_BIN)
@@ -65,7 +66,7 @@ test: Sources/BuildInfo.swift
 	@echo "==> 输出: Tests/out/preview.html"
 
 ## 界面快照：离屏渲染真实窗口，产出一张界面 PNG（开发期校验布局用）
-snapshot: Sources/BuildInfo.swift
+snapshot: buildinfo
 	@mkdir -p $(BUILD_DIR) Tests/out
 	@echo "==> 编译界面快照工具"
 	@$(SWIFTC) -disable-sandbox -swift-version 5 -O -parse-as-library \
@@ -75,7 +76,7 @@ snapshot: Sources/BuildInfo.swift
 	@echo "==> 输出: Tests/out/ui.png"
 
 ## 剪贴板验证：把渲染结果写进系统剪贴板，检查 public.html 是否正确
-copy-check: Sources/BuildInfo.swift
+copy-check: buildinfo
 	@mkdir -p $(BUILD_DIR)
 	@echo "==> 编译剪贴板验证工具"
 	@$(SWIFTC) -disable-sandbox -swift-version 5 -O -parse-as-library \
