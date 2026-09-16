@@ -50,6 +50,20 @@ TEAM_ID       ?= $(shell security find-certificate -c "Developer ID Application"
 # 密码不会经过命令行参数，避免泄漏到 `ps` 输出和 shell 历史。
 NOTARY_PROFILE ?= $(BUNDLE_ID)
 
+# 公证鉴权方式。默认走钥匙串 profile；如果显式传了 APPLE_ID/APP_PASSWORD，
+# 就改用命令行直传 —— 无 GUI 的环境（CI、受限 shell）里写钥匙串会报
+# "User interaction is not allowed"，此时直传是唯一可行路径。
+#   make release APPLE_ID=you@example.com APP_PASSWORD=xxxx-xxxx-xxxx-xxxx
+APPLE_ID      ?=
+APP_PASSWORD  ?=
+ifneq ($(strip $(APPLE_ID)),)
+  NOTARY_AUTH := --apple-id "$(APPLE_ID)" --team-id "$(TEAM_ID)" --password "$(APP_PASSWORD)"
+  NOTARY_DESC := 命令行直传（$(APPLE_ID)）
+else
+  NOTARY_AUTH := --keychain-profile "$(NOTARY_PROFILE)"
+  NOTARY_DESC := 钥匙串 profile $(NOTARY_PROFILE)
+endif
+
 ifeq ($(strip $(SIGN_IDENTITY)),)
   SIGN_ARGS := --force --sign -
   SIGN_DESC := ad-hoc
@@ -71,7 +85,8 @@ DMG          := $(BUILD_DIR)/$(APP_NAME)-$(VERSION).dmg
 DMG_STAGE    := $(BUILD_DIR)/dmg-stage
 
 .PHONY: all build buildinfo run test snapshot copy-check hardened-check icon clean \
-        install uninstall info sign verify notarize staple dmg release credentials doctor
+        install uninstall info sign verify notarize notarize-dmg staple dmg release \
+        credentials doctor
 
 all: build
 
@@ -189,9 +204,29 @@ notarize:
 	@rm -f $(NOTARIZE_ZIP)
 	@echo "==> 打包待公证"
 	@ditto -c -k --keepParent $(APP_BUNDLE) $(NOTARIZE_ZIP)
-	@echo "==> 提交公证（通常 1~5 分钟）"
-	@xcrun notarytool submit $(NOTARIZE_ZIP) --keychain-profile "$(NOTARY_PROFILE)" --wait
+	@echo "==> 提交公证（通常 1~5 分钟）｜鉴权：$(NOTARY_DESC)"
+	@xcrun notarytool submit $(NOTARIZE_ZIP) $(NOTARY_AUTH) --wait
 	@rm -f $(NOTARIZE_ZIP)
+
+## 公证并装订 DMG
+##
+## 提交前必须先确认 DMG 没有被挂载或占用 —— Apple 的预检要完整读一遍文件，
+## 一旦有残留挂载卷或 diskimage 进程持有它，notarytool 会卡在
+## "initiating connection to the Apple notary service" 且永远不返回，也不报错。
+notarize-dmg:
+	@test -f $(DMG) || { echo "✗ 还没有 $(DMG)，先跑 make dmg"; exit 1; }
+	@if [ -n "$$(lsof $(DMG) 2>/dev/null)" ]; then \
+		echo "✗ $(DMG) 正被占用，Apple 预检会读不到文件而卡死："; \
+		lsof $(DMG); \
+		echo "  常见原因：残留挂载卷（diskutil unmount / hdiutil detach）"; \
+		echo "           或残留 diskimage 进程（kill 掉即可）"; \
+		exit 1; \
+	fi
+	@hdiutil verify $(DMG) >/dev/null && echo "==> DMG 校验通过"
+	@echo "==> 提交公证｜鉴权：$(NOTARY_DESC)"
+	@xcrun notarytool submit $(DMG) $(NOTARY_AUTH) --wait
+	@xcrun stapler staple $(DMG)
+	@xcrun stapler validate $(DMG)
 
 ## 装订公证票据到 .app
 staple:
@@ -237,9 +272,7 @@ release:
 	@echo "═══ 5/7 生成 DMG"
 	@$(MAKE) --no-print-directory dmg
 	@echo "═══ 6/7 公证 DMG"
-	@xcrun notarytool submit $(DMG) --keychain-profile "$(NOTARY_PROFILE)" --wait
-	@xcrun stapler staple $(DMG)
-	@xcrun stapler validate $(DMG)
+	@$(MAKE) --no-print-directory notarize-dmg
 	@echo "═══ 7/7 Gatekeeper 评估"
 	@echo "-- .app（决定别人能不能打开的那一项）"
 	@spctl -a -vvv -t exec $(APP_BUNDLE)

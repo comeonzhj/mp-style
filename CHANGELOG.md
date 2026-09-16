@@ -25,6 +25,10 @@
   因此这一项已固化进发布流程。结论是不需要任何额外 entitlements。
 - 新增 `make doctor` 环境自检、`make credentials` 交互式存入公证凭据
   （密码走 `read -s`，不进命令行参数）。
+- 支持命令行直传凭据 `make release APPLE_ID=... APP_PASSWORD=...`，
+  用于无 GUI 环境（写钥匙串会报 `User interaction is not allowed`）。
+- `make notarize-dmg` 内置 `lsof` 占用守护：DMG 被残留挂载卷或 `diskimage`
+  进程持有时，`notarytool` 会静默卡死，守护会直接报错退出。
 
 ### 排版规则（基于参考文章 `mp.weixin.qq.com/s/Jdg8uvL_qSvPAu3zjY7gNg`）
 - 正文 `font-weight: 100`，行高 1.8，字距 0.1em，颜色 `#333333`，两端对齐。

@@ -142,6 +142,14 @@ make credentials     # 交互式输入 Apple ID + App 专用密码，存进钥�
 App 专用密码在 [account.apple.com](https://account.apple.com) → 登录与安全 → App 专用密码 生成，
 **不是**账号登录密码。
 
+> **无 GUI 的环境（CI、受限 shell）** 写钥匙串会报
+> `An error occurred while accessing the keychain. User interaction is not allowed.`
+> 此时改用命令行直传凭据，完全绕开钥匙串：
+>
+> ```bash
+> make release APPLE_ID=you@example.com APP_PASSWORD=xxxx-xxxx-xxxx-xxxx
+> ```
+
 ### 发布
 
 ```bash
@@ -167,6 +175,8 @@ make release
 | `build/MPStyle-<版本>.dmg` | 推荐分发。双击挂载，拖进「应用程序」 |
 | `build/MPStyle.app` | 已公证并装订，可直接压缩分发 |
 
+单独重跑某一步：`make notarize` / `make notarize-dmg` / `make staple` / `make dmg`。
+
 ### 几个必须记住的点
 
 **顺序不能乱：建 DMG → 签名 → 公证 → 装订。**
@@ -175,6 +185,12 @@ make release
 
 **DMG 必须单独签名。** 公证 ≠ 签名。只公证不签名的 DMG 会被 `spctl` 判为
 `no usable signature`，必须额外 `codesign --sign` 一次。
+
+**公证 DMG 前必须确认文件没被占用。** Apple 的预检要完整读一遍文件，
+一旦有残留挂载卷或 `diskimage` 进程持有它，`notarytool` 会卡在
+`initiating connection to the Apple notary service` 且**永远不返回、也不报错**。
+`make notarize-dmg` 内置了 `lsof` 守护，遇到占用会直接报错退出。
+真遇到了就 `diskutil unmount` 卸载残留卷，或 `kill` 掉 `diskimage` 进程。
 
 **装订（staple）决定离线可用性。** 票据烙进产物后，用户断网首次打开也不会被
 Gatekeeper 拦。只公证不装订的话，首次启动需要联网向 Apple 查询。
