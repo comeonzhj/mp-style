@@ -1,0 +1,20 @@
+# macOS
+.DS_Store
+build/
+*.dSYM/
+*.swp
+*~
+
+# Xcode / SwiftPM
+.build/
+.swiftpm/
+*.xcodeproj
+*.xcworkspace
+DerivedData/
+
+# 生成文件
+Sources/BuildInfo.swift
+build/AppIcon.iconset/
+
+# 测试产物
+Tests/out/
