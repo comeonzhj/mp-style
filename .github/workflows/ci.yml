@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 显示工具链版本
+        run: swiftc --version
+
+      - name: 渲染校验（含排版规则断言）
+        run: make test
+
+      - name: 强化运行时自检
+        run: make hardened-check
+
+      - name: 编译 .app（无证书时自动退回 ad-hoc 签名）
+        run: make build
+
+      - name: 上传构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: MPStyle-app
+          path: build/MPStyle.app
+          retention-days: 7

@@ -1,10 +1,23 @@
 # 公众号排版工具 (MPStyle)
 
+[![CI](https://github.com/comeonzhj/mp-style/actions/workflows/ci.yml/badge.svg)](https://github.com/comeonzhj/mp-style/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/comeonzhj/mp-style)](https://github.com/comeonzhj/mp-style/releases/latest)
+[![License](https://img.shields.io/github/license/comeonzhj/mp-style)](LICENSE)
+
 把 Markdown 一键转成可直接粘贴进微信公众号编辑器的富文本。
 
-原生 SwiftUI 单窗口应用，**没有 Electron、没有运行时依赖**，二进制约 900KB。
+原生 SwiftUI 单窗口应用，**没有 Electron、没有运行时依赖**。通用二进制（Apple Silicon + Intel），
+bundle 约 2MB。
 
 ![界面](docs/screenshot.png)
+
+## 下载安装
+
+到 [Releases](https://github.com/comeonzhj/mp-style/releases/latest) 下载 `MPStyle-x.y.z.dmg`，
+双击挂载后把图标拖进「应用程序」即可。
+
+已用 Developer ID 签名并通过 Apple 公证，**双击直接打开**，不需要右键绕过 Gatekeeper，
+断网首次启动也不会被拦。要求 macOS 13 或更新版本。
 
 排版基准取自一篇实际发布的公众号文章，并按需求做了定制改造，
 详见 [`docs/baseline-style.md`](docs/baseline-style.md)。
@@ -161,6 +174,7 @@ Tests/
 scripts/
 ├── gen-buildinfo.sh              版本号注入
 ├── make-icon.py                  生成 AppIcon.icns
+├── make-dmg.py                   生成带拖拽引导的 DMG
 └── store-notary-credentials.sh   交互式存入公证凭据
 ```
 
@@ -170,7 +184,7 @@ scripts/
 ## 构建
 
 ```bash
-make build        # 编译出 build/MPStyle.app（自动用 Developer ID 签名）
+make build        # 编译出 build/MPStyle.app（通用二进制，自动用 Developer ID 签名）
 make run          # 编译并启动
 make test         # 渲染校验 + 规则断言
 make snapshot     # 离屏渲染界面 PNG 到 Tests/out/ui.png
@@ -180,8 +194,19 @@ make icon         # 重新生成图标（需要 Pillow）
 make doctor       # 自检证书 / Team ID / 公证凭据是否就绪
 make install      # 安装到 /Applications
 make clean        # 清理
-make info         # 查看版本 / 源码规模
+make info         # 查看版本 / 架构 / 源码规模
 ```
+
+默认编出 `arm64 + x86_64` 通用二进制。只想要单架构可以 `make build ARCHS=arm64`，编译时间大约减半。
+
+### 可选依赖
+
+只有两件事需要额外装包，缺了也不影响主流程：
+
+| 用途 | 依赖 | 缺失时的行为 |
+|---|---|---|
+| 生成 DMG 背景与图标布局 | `pip install dmgbuild Pillow` | 退回朴素 DMG（无引导界面） |
+| 生成应用图标 | `pip install Pillow` | 沿用已提交的 `Resources/AppIcon.icns` |
 
 ## 签名、公证与分发
 
@@ -230,8 +255,12 @@ make release
 
 | 文件 | 说明 |
 |---|---|
-| `build/MPStyle-<版本>.dmg` | 推荐分发。双击挂载，拖进「应用程序」 |
+| `build/MPStyle-<版本>.dmg` | 推荐分发。带拖拽安装引导界面 |
 | `build/MPStyle.app` | 已公证并装订，可直接压缩分发 |
+
+DMG 的引导界面（窗口尺寸、图标坐标、背景图）由 `scripts/make-dmg.py` 通过
+`dmgbuild` 直接写 `.DS_Store` 生成，**不经过 AppleScript 驱动 Finder** ——
+后者需要「自动化」权限，在无 GUI 授权或 CI 环境下会直接报 `-10004 权限违例`。
 
 单独重跑某一步：`make notarize` / `make notarize-dmg` / `make staple` / `make dmg`。
 
@@ -281,3 +310,7 @@ JavaScript 执行正常（`make hardened-check` 会验证这条链路）。加
 - 代码块语法高亮（需转成内联 span，注意公众号样式限制）
 - 自定义 CSS 注入
 - 多套排版模板管理
+
+## 许可
+
+[MIT](LICENSE)

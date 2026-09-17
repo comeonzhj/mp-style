@@ -27,6 +27,14 @@
   `make test` 增加了对应断言。
 - `make test` 的部分断言原先依赖样例文档的具体内容，换测试文件会误报，已改为按需触发。
 
+### 工程
+- **改为通用二进制**（arm64 + x86_64），Intel Mac 也能运行。`make build ARCHS=arm64` 可只编单架构。
+- **DMG 增加拖拽安装引导界面**：窗口尺寸、图标坐标、背景图通过 `dmgbuild` 直接写
+  `.DS_Store`，不依赖 AppleScript 驱动 Finder（后者需要自动化权限，CI 下会失败）。
+  缺 `dmgbuild` 时自动退回朴素布局。
+- 新增 GitHub Actions CI：跑渲染断言、强化运行时自检并编译。
+- 新增 MIT LICENSE。
+
 ## [0.1.0] - 2026-09-16
 
 ### 新增

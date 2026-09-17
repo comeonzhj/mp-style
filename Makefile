@@ -12,10 +12,13 @@ APP_BIN      := $(APP_BUNDLE)/Contents/MacOS/$(APP_NAME)
 INFO_PLIST   := $(APP_BUNDLE)/Contents/Info.plist
 
 SWIFTC       := swiftc
+# 目标架构。默认编出 arm64 + x86_64 的通用二进制，Intel Mac 也能跑。
+# 只想要单架构可以用 make build ARCHS=arm64（编译时间大约减半）。
+ARCHS        ?= arm64 x86_64
 # -disable-sandbox：Swift 6 会用一个受限沙箱去启动宏插件服务进程（swift-plugin-server），
 #   在本机这类受限环境里 sandbox_apply 会失败，导致 SwiftUI 的 @State 等宏展开报
 #   "produced malformed response"。关掉子进程沙箱即可正常编译。
-SWIFT_FLAGS  := -disable-sandbox -swift-version 5 -O -parse-as-library -target arm64-apple-macos$(MIN_MACOS)
+SWIFT_FLAGS  := -disable-sandbox -swift-version 5 -O -parse-as-library
 FRAMEWORKS   := -framework SwiftUI -framework AppKit -framework WebKit
 
 # 注意：这几个变量必须用递归展开（= 而非 :=）。
@@ -80,6 +83,14 @@ endif
 # 不封装成 define 变量：变量展开后行首的 @ 不会被 make 识别，命令会被原样丢给 shell。
 # 直接内联，两处各写一遍，少一层魔法。
 
+# 装修 DMG 用的 Python（需要 Pillow + dmgbuild）。
+# 找不到就退回朴素布局 —— 不因为缺一个可选工具让整个发布流程失败。
+# 安装：pip install dmgbuild Pillow
+DMG_PY ?= $(shell for p in python3 .venv/bin/python3 /opt/homebrew/bin/python3 /usr/local/bin/python3; do \
+            { command -v $$p >/dev/null 2>&1 || [ -x $$p ]; } || continue; \
+            $$p -c "import dmgbuild, PIL" 2>/dev/null && { echo $$p; break; }; \
+          done)
+
 NOTARIZE_ZIP := $(BUILD_DIR)/$(APP_NAME)-$(VERSION)-notarize.zip
 DMG          := $(BUILD_DIR)/$(APP_NAME)-$(VERSION).dmg
 DMG_STAGE    := $(BUILD_DIR)/dmg-stage
@@ -101,15 +112,21 @@ buildinfo:
 
 ## 编译并组装 .app（自动签名）
 build: buildinfo
-	@mkdir -p $(APP_BUNDLE)/Contents/MacOS $(APP_BUNDLE)/Contents/Resources
-	@echo "==> 编译 $(APP_NAME) v$(VERSION)"
-	@$(SWIFTC) $(SWIFT_FLAGS) $(FRAMEWORKS) $(ALL_SOURCES) -o $(APP_BIN)
+	@mkdir -p $(APP_BUNDLE)/Contents/MacOS $(APP_BUNDLE)/Contents/Resources $(BUILD_DIR)
+	@echo "==> 编译 $(APP_NAME) v$(VERSION)　架构: $(ARCHS)"
+	@for arch in $(ARCHS); do \
+		echo "    · $$arch"; \
+		$(SWIFTC) $(SWIFT_FLAGS) -target $$arch-apple-macos$(MIN_MACOS) \
+			$(FRAMEWORKS) $(ALL_SOURCES) -o $(BUILD_DIR)/$(APP_NAME)-$$arch || exit 1; \
+	done
+	@lipo -create $(foreach a,$(ARCHS),$(BUILD_DIR)/$(APP_NAME)-$(a)) -output $(APP_BIN)
+	@rm -f $(foreach a,$(ARCHS),$(BUILD_DIR)/$(APP_NAME)-$(a))
 	@cp Resources/Info.plist $(INFO_PLIST)
 	@/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $(VERSION)" $(INFO_PLIST) 2>/dev/null || true
 	@/usr/libexec/PlistBuddy -c "Set :CFBundleVersion $(VERSION)" $(INFO_PLIST) 2>/dev/null || true
 	@if [ -f Resources/AppIcon.icns ]; then cp Resources/AppIcon.icns $(APP_BUNDLE)/Contents/Resources/; fi
 	@$(MAKE) --no-print-directory sign
-	@echo "==> 完成: $(APP_BUNDLE) ($$(du -sh $(APP_BUNDLE) | cut -f1))"
+	@echo "==> 完成: $(APP_BUNDLE) ($$(du -sh $(APP_BUNDLE) | cut -f1), $$(lipo -archs $(APP_BIN)))"
 
 ## 对 .app 签名
 sign:
@@ -233,7 +250,7 @@ staple:
 	@xcrun stapler staple $(APP_BUNDLE)
 	@xcrun stapler validate $(APP_BUNDLE)
 
-## 打成 DMG（并用 Developer ID 签名）
+## 打成 DMG（带拖拽安装引导界面）
 ##
 ## 注意两件事：
 ## 1. 这里刻意不依赖 build —— 若在公证、装订之后再重新编译签名，
@@ -243,13 +260,19 @@ staple:
 ##    建 DMG → 签名 → 公证 → 装订。
 dmg:
 	@test -d $(APP_BUNDLE) || { echo "✗ 还没有 $(APP_BUNDLE)，先跑 make build"; exit 1; }
-	@rm -rf $(DMG_STAGE) $(DMG)
-	@mkdir -p $(DMG_STAGE)
-	@cp -R $(APP_BUNDLE) $(DMG_STAGE)/
-	@ln -s /Applications $(DMG_STAGE)/Applications
-	@hdiutil create -volname "$(DISPLAY_NAME) $(VERSION)" -srcfolder $(DMG_STAGE) \
-		-ov -format UDZO -quiet $(DMG)
-	@rm -rf $(DMG_STAGE)
+	@rm -f $(DMG)
+	@if [ -n "$(DMG_PY)" ]; then \
+		echo "==> 用 dmgbuild 生成带引导界面的 DMG"; \
+		$(DMG_PY) scripts/make-dmg.py $(DMG) $(VERSION) $(APP_BUNDLE); \
+	else \
+		echo "==> 未装 dmgbuild，生成朴素 DMG（pip install dmgbuild Pillow 可启用引导界面）"; \
+		rm -rf $(DMG_STAGE); mkdir -p $(DMG_STAGE); \
+		cp -R $(APP_BUNDLE) $(DMG_STAGE)/; \
+		ln -s /Applications $(DMG_STAGE)/Applications; \
+		hdiutil create -volname "$(DISPLAY_NAME) $(VERSION)" -srcfolder $(DMG_STAGE) \
+			-ov -format UDZO -quiet $(DMG); \
+		rm -rf $(DMG_STAGE); \
+	fi
 	@if [ "$(SIGN_OK)" = "1" ]; then \
 		codesign --force --timestamp --sign "$(SIGN_IDENTITY)" $(DMG); \
 	fi
@@ -315,8 +338,10 @@ uninstall:
 info:
 	@echo "版本    : $(VERSION)"
 	@echo "Bundle  : $(BUNDLE_ID)"
+	@echo "架构    : $(ARCHS)"
 	@echo "最低系统: macOS $(MIN_MACOS)"
 	@echo "签名身份: $(SIGN_DESC)"
+	@echo "DMG 工具: $(if $(DMG_PY),$(DMG_PY),未装 dmgbuild，将生成朴素 DMG)"
 	@echo "源码数  : $$(echo $(ALL_SOURCES) | wc -w | tr -d ' ')"
 
 clean:
