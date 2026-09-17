@@ -20,6 +20,26 @@ enum HeadingColorMode: String, Codable, CaseIterable, Identifiable {
     }
 }
 
+/// 加粗文本的颜色取值方式
+enum BoldColorMode: String, Codable, CaseIterable, Identifiable {
+    /// 跟随主题色（默认）
+    case theme
+    /// 只加粗、不变色，沿用正文颜色
+    case inherit
+    /// 独立指定颜色
+    case custom
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .theme:   return "主题色"
+        case .inherit: return "同正文"
+        case .custom:  return "自定义"
+        }
+    }
+}
+
 /// 全部排版参数。纯 Foundation 模型，不依赖任何 UI 框架，
 /// 因此命令行渲染测试可以直接复用。
 struct ThemeConfig: Codable, Equatable {
@@ -47,6 +67,10 @@ struct ThemeConfig: Codable, Equatable {
     var bodyWeight: Int = 100
     /// 加粗字重，默认 500
     var boldWeight: Int = 500
+    /// 加粗文本的颜色取值方式
+    var boldColorMode: BoldColorMode = .theme
+    /// boldColorMode == .custom 时生效
+    var customBoldColor: String = "#1B63F3"
     var lineHeight: Double = 1.8
     /// 字距（em）
     var letterSpacing: Double = 0.1
@@ -107,6 +131,32 @@ struct ThemeConfig: Codable, Equatable {
     /// 代码字号相对正文的缩放
     var codeScale: Double = 0.88
 
+    // MARK: - 滚动块（<long-text> / <long-image> / <more-images>）
+
+    /// 长文本块的最大高度（px），超出后内部上下滚动
+    var longTextMaxHeight: Double = 320
+    /// 长文本块底色
+    var longTextBg: String = "#F7F9FC"
+    /// 长文本块圆角
+    var longTextRadius: Double = 8
+    /// 长文本块内边距（em）
+    var longTextPadding: Double = 0.9
+
+    /// 长图的最大高度（px）。参考文章里用的是 450
+    var longImageMaxHeight: Double = 450
+    /// 长图圆角
+    var longImageRadius: Double = 8
+
+    /// 多图横滑时单张图的宽度（占容器百分比）
+    var galleryImageWidth: Double = 72
+    /// 多图横滑的图片间距（px）
+    var galleryGap: Double = 12
+    /// 多图横滑的圆角
+    var galleryRadius: Double = 8
+
+    /// 是否在滚动块下方显示「滑动查看」提示
+    var scrollHintEnabled: Bool = true
+
     // MARK: - 外框卡片
 
     /// 整体内容外层米白圆角卡片（参考文章即为此结构）
@@ -147,6 +197,15 @@ struct ThemeConfig: Codable, Equatable {
         }
     }
 
+    /// 实际加粗文本颜色
+    var effectiveBoldColor: String {
+        switch boldColorMode {
+        case .theme:   return themeColor
+        case .inherit: return textColor
+        case .custom:  return customBoldColor
+        }
+    }
+
     /// 取整到 0.5px，避免出现 19.995px 这类脏值
     static func px(_ v: Double) -> Double {
         (v * 2).rounded() / 2
@@ -164,6 +223,13 @@ struct ThemeConfig: Codable, Equatable {
         let r = (v * 1000).rounded() / 1000
         if r == r.rounded() { return "\(Int(r))em" }
         return "\(r)em"
+    }
+
+    /// 输出百分比
+    static func cssPercent(_ v: Double) -> String {
+        let r = (v * 100).rounded() / 100
+        if r == r.rounded() { return "\(Int(r))%" }
+        return "\(r)%"
     }
 }
 

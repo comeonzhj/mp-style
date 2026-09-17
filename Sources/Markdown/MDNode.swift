@@ -5,6 +5,32 @@ enum ColumnAlign: String {
     case left, center, right
 }
 
+/// 三种定制滚动块
+enum CustomBlockKind: String, CaseIterable {
+    /// `<long-text>…</long-text>` 内容可上下滚动的文本块
+    case longText = "long-text"
+    /// `<long-image>…</long-image>` 可上下滚动查看的长图
+    case longImage = "long-image"
+    /// `<more-images>…</more-images>` 可左右滑动的多图组
+    case moreImages = "more-images"
+
+    var label: String {
+        switch self {
+        case .longText:   return "长文本块"
+        case .longImage:  return "长图"
+        case .moreImages: return "多图横滑"
+        }
+    }
+
+    /// 提示文案里的滑动方向
+    var hint: String {
+        switch self {
+        case .longText, .longImage: return "上下滑动查看"
+        case .moreImages:           return "左右滑动查看更多"
+        }
+    }
+}
+
 /// 列表项
 struct ListItem {
     /// 该项的文本（可能为空，仅有子块）
@@ -24,6 +50,8 @@ indirect enum MDNode {
     case codeBlock(code: String, lang: String?)
     case table(headers: [String], aligns: [ColumnAlign], rows: [[String]])
     case thematicBreak
+    /// 定制滚动块。`content` 是标签之间的原始内容（未解析）
+    case customBlock(kind: CustomBlockKind, content: String)
 }
 
 /// Markdown 行内 AST

@@ -58,6 +58,23 @@ enum PlainTextRenderer {
 
             case .thematicBreak:
                 lines.append(pad + String(repeating: "-", count: 40))
+
+            case .customBlock(let kind, let content):
+                switch kind {
+                case .longText:
+                    // 文本块按普通块处理，纯文本里没有「滚动」这个概念
+                    lines.append(blocks(BlockParser.parse(content), indent: indent))
+                case .longImage, .moreImages:
+                    let images = HTMLRenderer.extractImages(from: content)
+                    if images.isEmpty {
+                        lines.append(pad + "[\(kind.label)] " + content)
+                    } else {
+                        for image in images {
+                            let alt = image.alt.isEmpty ? "图片" : image.alt
+                            lines.append(pad + "[\(alt)] \(image.url)")
+                        }
+                    }
+                }
             }
         }
 

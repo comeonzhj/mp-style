@@ -62,4 +62,21 @@ enum RX {
     static let task     = "^\\[([ xX])\\](?:[ \\t]+(.*))?$"
     /// 行内代码反引号串
     static let backticks = "`+"
+
+    // MARK: - 定制滚动块
+    //
+    // 三种自定义容器标签，支持两种写法：
+    //   多行：<long-text>\n内容\n</long-text>
+    //   单行：<long-text>内容</long-text>
+    // 标签名大小写不敏感。属性暂不支持，保持语法简单。
+
+    /// 起始标签独占一行
+    static let customOpen  = "^[ \\t]*<(long-text|long-image|more-images)>[ \\t]*$"
+    /// 结束标签独占一行
+    static let customClose = "^[ \\t]*</(long-text|long-image|more-images)>[ \\t]*$"
+    /// 单行写法：起止标签在同一行
+    static let customInline = "^[ \\t]*<(long-text|long-image|more-images)>([\\s\\S]*)</\\1>[ \\t]*$"
+
+    /// `<img src="...">`，用于在滚动块里接受 HTML 写法的图片
+    static let htmlImg = "<img[^>]*?src=[\"']([^\"']+)[\"'][^>]*>"
 }

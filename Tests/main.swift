@@ -42,9 +42,19 @@ func count(_ pattern: String, in text: String) -> Int {
     return re.numberOfMatches(in: text, range: NSRange(location: 0, length: (text as NSString).length))
 }
 
+/// 返回正则第一个捕获组的所有匹配
+func captures(_ pattern: String, in text: String) -> [String] {
+    guard let re = try? NSRegularExpression(pattern: pattern, options: [.dotMatchesLineSeparators]) else { return [] }
+    let ns = text as NSString
+    return re.matches(in: text, range: NSRange(location: 0, length: ns.length)).map { match in
+        match.numberOfRanges > 1 ? ns.substring(with: match.range(at: 1)) : ""
+    }
+}
+
 let nodes = BlockParser.parse(markdown)
 var headingCounts: [Int: Int] = [:]
 var paragraphCount = 0, listCount = 0, quoteCount = 0, codeCount = 0, tableCount = 0, ruleCount = 0
+var customCounts: [CustomBlockKind: Int] = [:]
 
 func walk(_ list: [MDNode]) {
     for node in list {
@@ -60,6 +70,7 @@ func walk(_ list: [MDNode]) {
         case .codeBlock:              codeCount += 1
         case .table:                  tableCount += 1
         case .thematicBreak:          ruleCount += 1
+        case .customBlock(let kind, _): customCounts[kind, default: 0] += 1
         }
     }
 }
@@ -70,13 +81,20 @@ let headingSummary = (1...6).compactMap { level -> String? in
     return "h\(level)=\(n)"
 }.joined(separator: " ")
 
+let customSummary = CustomBlockKind.allCases.compactMap { kind -> String? in
+    guard let n = customCounts[kind] else { return nil }
+    return "\(kind.rawValue)=\(n)"
+}.joined(separator: " ")
+
 print("""
 ── 渲染结果 ─────────────────────────────
 输入        : \(inputPath)
 输出        : \(outputPath ?? "(未写文件)")
 正文字号    : \(ThemeConfig.cssPx(config.fontSize))
 主题色      : \(config.themeColor)
+加粗        : 字重 \(config.boldWeight) / 颜色 \(config.effectiveBoldColor)（\(config.boldColorMode.label)）
 标题        : \(headingSummary.isEmpty ? "无" : headingSummary)
+滚动块      : \(customSummary.isEmpty ? "无" : customSummary)
 段落        : \(paragraphCount)
 列表        : \(listCount)
 引用        : \(quoteCount)
@@ -128,6 +146,46 @@ if fragment.contains("<ol") || fragment.contains("<ul") {
 if listCount > 0 {
     expect(fragment.contains("</span>&nbsp;") || fragment.contains("☐</span>") || fragment.contains("☑</span>"),
            "列表序号 / 圆点应为真实文本节点")
+}
+
+// ── 滚动块 ────────────────────────────────────────────────
+if customCounts[.longText, default: 0] > 0 {
+    expect(fragment.contains("overflow-y: auto"), "长文本块应有 overflow-y: auto")
+    expect(fragment.contains("-webkit-overflow-scrolling: touch"),
+           "滚动块应开启 iOS 顺势滚动")
+}
+if customCounts[.longImage, default: 0] > 0 {
+    expect(fragment.contains("max-height: \(ThemeConfig.cssPx(config.longImageMaxHeight))"),
+           "长图容器应带上限高")
+}
+if customCounts[.moreImages, default: 0] > 0 {
+    expect(fragment.contains("overflow-x: auto"), "多图组应有 overflow-x: auto")
+    expect(fragment.contains("white-space: nowrap"), "多图组应禁止换行以形成横滑")
+    expect(fragment.contains("display: inline-block"), "多图组的图片应水平排列")
+
+    // inline-block 之间出现换行或空格会渲染出多余间隙，所以容器内部不能有换行
+    let galleries = captures("<section style=\"[^\"]*white-space: nowrap[^\"]*\">(.*?)</section>", in: fragment)
+    expect(!galleries.isEmpty, "未找到多图横滑容器")
+    let broken = galleries.filter { $0.contains("\n") }.count
+    expect(broken == 0, "\(broken) 个多图容器内部出现了换行")
+}
+
+// 加粗颜色可配：切成「同正文」后不应再出现主题色加粗
+do {
+    var alt = ThemeConfig()
+    alt.boldColorMode = .custom
+    alt.customBoldColor = "#D93F3F"
+    let altHTML = HTMLRenderer(config: alt).render("这是**加粗**文字")
+    expect(altHTML.contains("font-weight: 500"), "自定义加粗仍应保留字重设置")
+    expect(altHTML.contains("#D93F3F"), "自定义加粗颜色未生效")
+}
+do {
+    var alt = ThemeConfig()
+    alt.boldWeight = 700
+    alt.boldColorMode = .inherit
+    let altHTML = HTMLRenderer(config: alt).render("这是**加粗**文字")
+    expect(altHTML.contains("font-weight: 700"), "加粗字重未生效")
+    expect(altHTML.contains("#333333"), "「同正文」模式应沿用正文颜色")
 }
 
 print("── 校验 ────────────────────────────────")

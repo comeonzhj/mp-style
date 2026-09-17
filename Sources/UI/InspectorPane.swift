@@ -4,7 +4,7 @@ import SwiftUI
 struct InspectorPane: View {
 
     @EnvironmentObject private var state: AppState
-    @State private var expanded: Set<String> = ["主题色", "正文"]
+    @State private var expanded: Set<String> = ["主题色", "正文", "加粗文本"]
 
     var body: some View {
         VStack(spacing: 0) {
@@ -19,9 +19,11 @@ struct InspectorPane: View {
                 VStack(spacing: 9) {
                     themeSection
                     bodySection
+                    boldSection
                     headingSection
                     listSection
                     imageSection
+                    scrollSection
                     quoteCodeSection
                     cardSection
                 }
@@ -79,8 +81,106 @@ struct InspectorPane: View {
         }
     }
 
-    private var headingSection: some View {
-        group("标题") {
+    /// 加粗文本：字重与颜色都可调
+    private var boldSection: some View {
+        group("加粗文本") {
+            VStack(alignment: .leading, spacing: 8) {
+                SettingSlider(title: "字重",
+                              value: boldWeight,
+                              range: 400...900, step: 100,
+                              display: { "\(Int($0))" })
+                Picker("", selection: $state.config.boldColorMode) {
+                    ForEach(BoldColorMode.allCases) { mode in
+                        Text(mode.label).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .controlSize(.small)
+
+                if state.config.boldColorMode == .custom {
+                    HStack(spacing: 7) {
+                        ColorPicker("", selection: boldColorBinding, supportsOpacity: false)
+                            .labelsHidden()
+                            .frame(width: 34)
+                        HexField(hex: $state.config.customBoldColor)
+                        Spacer(minLength: 0)
+                    }
+                } else {
+                    HStack(spacing: 6) {
+                        Text("实际颜色").font(.system(size: 11))
+                        Spacer(minLength: 4)
+                        Circle()
+                            .fill(Color(hex: state.config.effectiveBoldColor))
+                            .frame(width: 11, height: 11)
+                        Text(state.config.effectiveBoldColor)
+                            .font(.system(size: 10.5, design: .monospaced))
+                            .foregroundColor(.secondary)
+                    }
+                }
+            }
+        }
+    }
+
+    /// 三种定制滚动块
+    private var scrollSection: some View {
+        group("滚动块") {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("长文本 ↓  长图 ↕  多图 ↔")
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+
+                Toggle("显示滑动提示", isOn: $state.config.scrollHintEnabled)
+                    .font(.system(size: 11.5))
+                    .toggleStyle(.switch)
+                    .controlSize(.mini)
+
+                Divider().padding(.vertical, 1)
+
+                SettingSlider(title: "长文本限高",
+                              value: $state.config.longTextMaxHeight,
+                              range: 160...640, step: 10,
+                              display: { "\(Int($0))px" })
+                SettingSlider(title: "长文本圆角",
+                              value: $state.config.longTextRadius,
+                              range: 0...24, step: 1,
+                              display: { "\(Int($0))px" })
+                HStack(spacing: 7) {
+                    Text("长文本底色").font(.system(size: 11.5))
+                    Spacer(minLength: 4)
+                    HexField(hex: $state.config.longTextBg)
+                }
+
+                Divider().padding(.vertical, 1)
+
+                SettingSlider(title: "长图限高",
+                              value: $state.config.longImageMaxHeight,
+                              range: 200...800, step: 10,
+                              display: { "\(Int($0))px" })
+                SettingSlider(title: "长图圆角",
+                              value: $state.config.longImageRadius,
+                              range: 0...24, step: 1,
+                              display: { "\(Int($0))px" })
+
+                Divider().padding(.vertical, 1)
+
+                SettingSlider(title: "图集图片宽度",
+                              value: $state.config.galleryImageWidth,
+                              range: 40...100, step: 1,
+                              display: { "\(Int($0))%" })
+                SettingSlider(title: "图集间距",
+                              value: $state.config.galleryGap,
+                              range: 0...32, step: 1,
+                              display: { "\(Int($0))px" })
+                SettingSlider(title: "图集圆角",
+                              value: $state.config.galleryRadius,
+                              range: 0...24, step: 1,
+                              display: { "\(Int($0))px" })
+            }
+        }
+    }
+
+    private var headingSection: some View {        group("标题") {
             VStack(alignment: .leading, spacing: 8) {
                 Picker("", selection: $state.config.headingColorMode) {
                     ForEach(HeadingColorMode.allCases) { mode in
@@ -274,6 +374,16 @@ struct InspectorPane: View {
     private var bodyWeight: Binding<Double> {
         Binding(get: { Double(state.config.bodyWeight) },
                 set: { state.config.bodyWeight = Int($0) })
+    }
+
+    private var boldWeight: Binding<Double> {
+        Binding(get: { Double(state.config.boldWeight) },
+                set: { state.config.boldWeight = Int($0) })
+    }
+
+    private var boldColorBinding: Binding<Color> {
+        Binding(get: { Color(hex: state.config.customBoldColor) },
+                set: { state.config.customBoldColor = $0.hexString })
     }
 
     private var headingWeight: Binding<Double> {

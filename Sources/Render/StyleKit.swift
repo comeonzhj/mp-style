@@ -46,7 +46,9 @@ struct StyleKit {
     // MARK: - 正文
 
     /// 段落样式。`inQuote` 时收敛字号与间距，避免引用块内文字比正文还大。
-    func paragraph(inQuote: Bool) -> String {
+    /// `compact` 用于滚动块内部：内容本身已经在一个带内边距的盒子里，
+    /// 再用正文那套 1.2em 段间距会撑得过松。
+    func paragraph(inQuote: Bool, compact: Bool = false) -> String {
         if inQuote {
             return css([
                 ("margin", "\(em(t.paragraphSpacing * 0.55)) 0"),
@@ -59,10 +61,10 @@ struct StyleKit {
             ])
         }
         return css([
-            ("margin", "\(em(t.paragraphSpacing)) 0"),
+            ("margin", "\(em(compact ? t.paragraphSpacing * 0.45 : t.paragraphSpacing)) 0"),
             ("font-size", px(t.fontSize)),
             ("font-weight", "\(t.bodyWeight)"),
-            ("line-height", "\(t.lineHeight)"),
+            ("line-height", "\(compact ? min(t.lineHeight, 1.75) : t.lineHeight)"),
             ("letter-spacing", em(t.letterSpacing)),
             ("color", body),
             ("text-align", t.textAlignJustify ? "justify" : "left"),
@@ -213,11 +215,11 @@ struct StyleKit {
 
     // MARK: - 行内元素
 
-    /// 加粗：中等字重 + 主题色
+    /// 加粗：字重与颜色都可在参数面板里调
     func strong() -> String {
         css([
             ("font-weight", "\(t.boldWeight)"),
-            ("color", theme),
+            ("color", HexColor.normalize(t.effectiveBoldColor)),
         ])
     }
 
@@ -291,6 +293,89 @@ struct StyleKit {
             ("font-weight", "\(t.bodyWeight)"),
             ("font-size", px(ThemeConfig.px(t.fontSize * 0.93))),
             ("text-align", align.rawValue),
+        ])
+    }
+
+    // MARK: - 滚动块
+    //
+    // 三种定制块的共同点：容器给一个方向上的 overflow 滚动，并开启
+    // -webkit-overflow-scrolling: touch 让 iOS 上是顺滑的原生滚动而不是卡顿的逐帧重绘。
+    // 公众号编辑器保留内联的 overflow 声明，参考文章里的长图就是这么做的。
+
+    /// `<long-text>` 长文本块容器
+    func longTextContainer() -> String {
+        css([
+            ("max-height", px(t.longTextMaxHeight)),
+            ("overflow-y", "auto"),
+            ("overflow-x", "hidden"),
+            ("-webkit-overflow-scrolling", "touch"),
+            ("background-color", HexColor.normalize(t.longTextBg)),
+            ("border-radius", px(t.longTextRadius)),
+            ("padding", "\(em(t.longTextPadding * 0.2)) \(em(t.longTextPadding * 1.2))"),
+            ("box-sizing", "border-box"),
+            ("margin", "\(em(t.paragraphSpacing)) 0"),
+        ])
+    }
+
+    /// `<long-image>` 长图容器
+    func longImageContainer() -> String {
+        css([
+            ("max-height", px(t.longImageMaxHeight)),
+            ("overflow-y", "auto"),
+            ("overflow-x", "hidden"),
+            ("-webkit-overflow-scrolling", "touch"),
+            ("border-radius", px(t.longImageRadius)),
+            ("box-sizing", "border-box"),
+            ("margin", "\(em(t.imageSpacing)) 0"),
+        ])
+    }
+
+    /// 长图本体：撑满容器宽度，高度自适应，靠容器限高产生滚动
+    func longImage() -> String {
+        css([
+            ("display", "block"),
+            ("width", "100%"),
+            ("height", "auto"),
+            ("border-radius", px(t.longImageRadius)),
+        ])
+    }
+
+    /// `<more-images>` 多图横滑容器
+    func galleryContainer() -> String {
+        css([
+            ("overflow-x", "auto"),
+            ("overflow-y", "hidden"),
+            ("-webkit-overflow-scrolling", "touch"),
+            ("white-space", "nowrap"),
+            ("margin", "\(em(t.imageSpacing)) 0"),
+            ("padding-bottom", "6px"),
+            ("box-sizing", "border-box"),
+        ])
+    }
+
+    /// 横滑里的单张图。用 inline-block + nowrap 排在一条水平线上。
+    func galleryImage(isLast: Bool) -> String {
+        css([
+            ("display", "inline-block"),
+            ("width", "\(ThemeConfig.cssPercent(t.galleryImageWidth))"),
+            ("height", "auto"),
+            ("vertical-align", "top"),
+            ("border-radius", px(t.galleryRadius)),
+            ("box-shadow", t.imageShadow ? "0 6px 18px \(HexColor.rgba("#000000", alpha: 0.1))" : nil),
+            ("margin-right", isLast ? "0" : px(t.galleryGap)),
+        ])
+    }
+
+    /// 滚动块下方的「滑动查看」提示
+    func scrollHint() -> String {
+        css([
+            ("margin", "0.4em 0 \(em(t.paragraphSpacing))"),
+            ("font-size", px(ThemeConfig.px(t.fontSize * 0.8))),
+            ("font-weight", "\(t.bodyWeight)"),
+            ("color", muted),
+            ("text-align", "center"),
+            ("letter-spacing", "0.05em"),
+            ("line-height", "2"),
         ])
     }
 

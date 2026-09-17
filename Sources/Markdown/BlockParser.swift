@@ -37,6 +37,19 @@ struct BlockParser {
             let line = lines[i]
             if Self.isBlank(line) { i += 1; continue }
 
+            // 定制滚动块。放在最前面判断，避免标签被其他规则误吞。
+            if let m = line.matches(RX.customInline), m.count > 2,
+               let kind = CustomBlockKind(rawValue: m[1].lowercased()) {
+                // 单行写法：<long-text>内容</long-text>
+                nodes.append(.customBlock(kind: kind, content: m[2]))
+                i += 1
+                continue
+            }
+            if let kind = Self.customOpenKind(line) {
+                nodes.append(parseCustomBlock(kind: kind))
+                continue
+            }
+
             // 围栏代码块
             if let m = line.matches(RX.fence), m.count > 2 {
                 nodes.append(parseFencedCode(fence: m[1], lang: m[2]))
@@ -69,6 +82,43 @@ struct BlockParser {
             nodes.append(parseParagraph())
         }
         return nodes
+    }
+
+    // MARK: - 定制滚动块
+
+    /// 收集 `<long-text>` 这类容器标签之间的内容。
+    /// 未闭合时一直吃到文件结尾，不会丢内容。
+    private mutating func parseCustomBlock(kind: CustomBlockKind) -> MDNode {
+        i += 1 // 跳过起始标签
+        var body: [String] = []
+        while i < lines.count {
+            if Self.customCloseKind(lines[i]) == kind {
+                i += 1
+                break
+            }
+            body.append(lines[i])
+            i += 1
+        }
+        while let first = body.first, Self.isBlank(first) { body.removeFirst() }
+        while let last = body.last, Self.isBlank(last) { body.removeLast() }
+        return .customBlock(kind: kind, content: body.joined(separator: "\n"))
+    }
+
+    static func customOpenKind(_ line: String) -> CustomBlockKind? {
+        guard let m = line.matches(RX.customOpen), m.count > 1 else { return nil }
+        return CustomBlockKind(rawValue: m[1].lowercased())
+    }
+
+    static func customCloseKind(_ line: String) -> CustomBlockKind? {
+        guard let m = line.matches(RX.customClose), m.count > 1 else { return nil }
+        return CustomBlockKind(rawValue: m[1].lowercased())
+    }
+
+    /// 该行是否是定制滚动块的标签（用于打断段落）
+    private static func isCustomTag(_ line: String) -> Bool {
+        customOpenKind(line) != nil
+            || customCloseKind(line) != nil
+            || line.isMatching(RX.customInline)
     }
 
     // MARK: - 围栏代码块
@@ -275,6 +325,7 @@ struct BlockParser {
     /// 该行是否会开启一个新的块（会打断段落）
     private func interruptsParagraph(_ line: String) -> Bool {
         if Self.isBlank(line) { return true }
+        if Self.isCustomTag(line) { return true }
         if line.isMatching(RX.fence) || line.isMatching(RX.thematic) { return true }
         if line.isMatching(RX.heading) || line.isMatching(RX.quote) { return true }
         if let m = Self.listMarker(of: line) {

@@ -20,6 +20,8 @@ struct HTMLRenderer {
     private struct Context {
         var quoteDepth = 0
         var listDepth = 0
+        /// 处于滚动块内部。滚动块自身已有内边距，内部段落要收紧段间距。
+        var inScrollBlock = false
         static let root = Context()
     }
 
@@ -122,10 +124,13 @@ struct HTMLRenderer {
             if inlines.count == 1, case .image = inlines[0] {
                 return renderInlines(inlines, ctx: ctx)
             }
-            return "<p style=\"\(kit.paragraph(inQuote: ctx.quoteDepth > 0))\">\(renderInlines(inlines, ctx: ctx))</p>"
+            return "<p style=\"\(kit.paragraph(inQuote: ctx.quoteDepth > 0, compact: ctx.inScrollBlock))\">\(renderInlines(inlines, ctx: ctx))</p>"
 
         case .list(let ordered, let start, let items):
             return renderList(ordered: ordered, start: start, items: items, ctx: ctx)
+
+        case .customBlock(let kind, let content):
+            return renderCustomBlock(kind: kind, content: content, ctx: ctx)
 
         case .blockquote(let children):
             var inner = ctx
@@ -216,6 +221,97 @@ struct HTMLRenderer {
             }
         }
         return out
+    }
+
+    // MARK: - 滚动块
+
+    /// 三种定制块统一入口：先渲染主体，再按需补一行滑动提示。
+    private func renderCustomBlock(kind: CustomBlockKind, content: String, ctx: Context) -> String {
+        let body: String
+        switch kind {
+        case .longText:
+            body = renderLongText(content, ctx: ctx)
+        case .longImage:
+            body = renderLongImage(content, ctx: ctx)
+        case .moreImages:
+            body = renderGallery(content, ctx: ctx)
+        }
+
+        guard config.scrollHintEnabled, !body.isEmpty else { return body }
+        return body + "\n<p style=\"\(kit.scrollHint())\">\(hintText(for: kind))</p>"
+    }
+
+    private func hintText(for kind: CustomBlockKind) -> String {
+        switch kind {
+        case .longText, .longImage: return "↓ \(kind.hint)"
+        case .moreImages:           return "\(kind.hint) →"
+        }
+    }
+
+    /// `<long-text>`：内容按正常 Markdown 渲染后塞进一个限高可滚的盒子。
+    private func renderLongText(_ content: String, ctx: Context) -> String {
+        guard !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return "" }
+        var inner = ctx
+        inner.inScrollBlock = true
+        let rendered = renderBlocks(BlockParser.parse(content), ctx: inner)
+        return "<section style=\"\(kit.longTextContainer())\">\n\(rendered)\n</section>"
+    }
+
+    /// `<long-image>`：一张超长图，容器限高后内部上下滚动查看。
+    private func renderLongImage(_ content: String, ctx: Context) -> String {
+        guard let image = Self.extractImages(from: content).first else {
+            // 没解析出图片就按文本处理，至少不丢内容
+            return renderLongText(content, ctx: ctx)
+        }
+        let img = "<img src=\"\(escapeAttribute(image.url))\" alt=\"\(escapeAttribute(image.alt))\" style=\"\(kit.longImage())\">"
+        return "<section style=\"\(kit.longImageContainer())\">\(img)</section>"
+    }
+
+    /// `<more-images>`：多张图排成一条水平线，容器横向滚动。
+    private func renderGallery(_ content: String, ctx: Context) -> String {
+        let images = Self.extractImages(from: content)
+        guard !images.isEmpty else { return renderLongText(content, ctx: ctx) }
+
+        // 注意：img 之间不能有换行或空格，否则 inline-block 之间会多出空白间隙
+        var html = "<section style=\"\(kit.galleryContainer())\">"
+        for (index, image) in images.enumerated() {
+            let isLast = index == images.count - 1
+            html += "<img src=\"\(escapeAttribute(image.url))\" alt=\"\(escapeAttribute(image.alt))\" style=\"\(kit.galleryImage(isLast: isLast))\">"
+        }
+        html += "</section>"
+        return html
+    }
+
+    /// 从滚动块内容里提取图片。支持三种写法：
+    /// - `![alt](url)` 标准 Markdown
+    /// - `<img src="url">` HTML 标签
+    /// - 一行一个裸 URL
+    static func extractImages(from content: String) -> [(alt: String, url: String)] {
+        var result: [(alt: String, url: String)] = []
+
+        for rawLine in content.components(separatedBy: "\n") {
+            let line = rawLine.trimmingCharacters(in: .whitespaces)
+            if line.isEmpty { continue }
+
+            var found = false
+            for node in InlineParser.parse(line) {
+                if case .image(let alt, let url) = node {
+                    result.append((alt, url))
+                    found = true
+                }
+            }
+            if found { continue }
+
+            if let m = line.matches(RX.htmlImg), m.count > 1 {
+                result.append(("", m[1]))
+                continue
+            }
+
+            if line.hasPrefix("http://") || line.hasPrefix("https://") {
+                result.append(("", line))
+            }
+        }
+        return result
     }
 
     // MARK: - 表格

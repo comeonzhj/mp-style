@@ -79,6 +79,58 @@ let html = renderer.render(markdown)
 
 ![示例图片](https://picsum.photos/seed/mpstyle/1200/720)
 
+## 滚动块
+
+长文本块：超出限高后在块内上下滚动。
+
+<long-text>
+这里是塞进滚动块里的一大段文字。段落、**加粗**、`行内代码` 都能正常渲染。
+滚动块的容器有自己的底色和圆角，内部段间距会自动收紧，避免和容器内边距叠加
+导致上下留白过多。
+
+第二段。这段内容需要足够长，才能把总高度撑过 320px 的限高，从而真正产生滚动。
+如果内容比限高短，容器就按内容高度自适应，不会有滚动条 —— 这是 max-height
+而不是 height 的意义所在。
+
+第三段。继续填充，确保超出限高。滚动块适合放那些「读者需要但会打断阅读节奏」
+的内容 —— 完整代码、详细参数表、补充说明、完整访谈记录都属于这一类。
+
+第四段。继续填充，确保超出限高。读者可以自己决定要不要展开细看，
+不展开也不影响主线的阅读体验。
+
+第五段。继续填充，确保超出限高。继续填充，确保超出限高。
+
+第六段。继续填充，确保超出限高。继续填充，确保超出限高。
+
+第七段，收尾。
+</long-text>
+
+长图：
+
+<long-image>
+![超长图](https://picsum.photos/seed/mplong/1200/3600)
+</long-image>
+
+多图横滑：
+
+<more-images>
+![图一](https://picsum.photos/seed/mp1/900/600)
+![图二](https://picsum.photos/seed/mp2/900/600)
+![图三](https://picsum.photos/seed/mp3/900/600)
+![图四](https://picsum.photos/seed/mp4/900/600)
+</more-images>
+
+裸 URL 写法也支持：
+
+<more-images>
+https://picsum.photos/seed/mp5/900/600
+https://picsum.photos/seed/mp6/900/600
+</more-images>
+
+单行写法：
+
+<long-text>这一行直接写在标签中间。</long-text>
+
 ## 分割线
 
 ---
