@@ -17,6 +17,17 @@ final class AppState: ObservableObject {
     /// 轻提示文案
     @Published var toast: String?
 
+    // MARK: - 发布到公众号草稿箱
+
+    /// 发布配置（AppID、标题、封面等）
+    @Published var publishConfig: PublishConfig = PublishConfigStore.load()
+    /// AppSecret。界面里可编辑，落盘时进钥匙串而不是 UserDefaults。
+    @Published var appSecret: String = Keychain.get(.wechatAppSecret) ?? ""
+    /// 发布进度流水
+    @Published var publishProgress = PublishProgress()
+    /// 是否展开发布面板
+    @Published var showPublishSheet = false
+
     private var bag = Set<AnyCancellable>()
     private var toastWork: DispatchWorkItem?
 
@@ -35,6 +46,31 @@ final class AppState: ObservableObject {
             .debounce(for: .milliseconds(300), scheduler: RunLoop.main)
             .sink { ConfigStore.save($0) }
             .store(in: &bag)
+
+        // 发布配置变化 → 持久化
+        $publishConfig
+            .dropFirst()
+            .debounce(for: .milliseconds(300), scheduler: RunLoop.main)
+            .sink { PublishConfigStore.save($0) }
+            .store(in: &bag)
+
+        // AppSecret 变化 → 存钥匙串（不放 UserDefaults）
+        $appSecret
+            .dropFirst()
+            .debounce(for: .milliseconds(500), scheduler: RunLoop.main)
+            .sink { secret in
+                if secret.isEmpty {
+                    Keychain.delete(.wechatAppSecret)
+                } else {
+                    Keychain.set(secret, for: .wechatAppSecret)
+                }
+            }
+            .store(in: &bag)
+    }
+
+    /// 钥匙串里是否已经存过 AppSecret
+    var hasStoredSecret: Bool {
+        Keychain.get(.wechatAppSecret)?.isEmpty == false
     }
 
     private func rebuild() {
@@ -114,7 +150,8 @@ final class AppState: ObservableObject {
 
     // MARK: - 轻提示
 
-    private func flash(_ message: String) {
+    /// 非 private：发布流程在 AppState+Publish.swift 里也要用
+    func flash(_ message: String) {
         toast = message
         toastWork?.cancel()
         let work = DispatchWorkItem { [weak self] in

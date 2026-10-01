@@ -28,6 +28,9 @@ struct RootView: View {
             }
         }
         .animation(.spring(response: 0.3, dampingFraction: 0.85), value: state.toast)
+        .sheet(isPresented: $state.showPublishSheet) {
+            PublishSheet().environmentObject(state)
+        }
     }
 
     // MARK: - 顶部操作条
@@ -51,6 +54,16 @@ struct RootView: View {
             }
 
             Spacer(minLength: 8)
+
+            Button {
+                state.showPublishPanel()
+            } label: {
+                Label("发布到草稿箱", systemImage: "paperplane")
+                    .font(.system(size: 12))
+            }
+            .controlSize(.regular)
+            .keyboardShortcut("p", modifiers: [.command, .shift])
+            .help("把当前文章写入公众号草稿箱（⇧⌘P）")
 
             Button {
                 state.exportHTML()

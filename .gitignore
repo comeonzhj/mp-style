@@ -16,5 +16,13 @@ DerivedData/
 Sources/BuildInfo.swift
 build/AppIcon.iconset/
 
+# 凭据 —— 绝对不要提交
+# 公众号 AppID / AppSecret、公证凭据、任何 token 都放这里
+.env
+.env.*
+!.env.example
+*.secret
+credentials.json
+
 # 测试产物
 Tests/out/

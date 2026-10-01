@@ -34,6 +34,12 @@ TEST_BIN     := $(BUILD_DIR)/render-cli
 SNAPSHOT_BIN := $(BUILD_DIR)/ui-snapshot
 COPY_BIN     := $(BUILD_DIR)/copy-check
 HARDENED_BIN := $(BUILD_DIR)/hardened-check
+PUBLISH_BIN  := $(BUILD_DIR)/publish-check
+# 草稿箱凭据文件。里面是 AppID / AppSecret，已在 .gitignore 里排除
+ENV_FILE     ?= .env
+
+# 除 App 入口外的全部源码。命令行工具不能带上 MPStyleApp.swift，否则两个 @main 冲突。
+LIB_SOURCES  = $(filter-out Sources/MPStyleApp.swift,$(ALL_SOURCES))
 
 # ══════════════════════════════════════════════════════════════════════
 #  签名与公证
@@ -95,9 +101,9 @@ NOTARIZE_ZIP := $(BUILD_DIR)/$(APP_NAME)-$(VERSION)-notarize.zip
 DMG          := $(BUILD_DIR)/$(APP_NAME)-$(VERSION).dmg
 DMG_STAGE    := $(BUILD_DIR)/dmg-stage
 
-.PHONY: all build buildinfo run test snapshot copy-check hardened-check icon clean \
-        install uninstall info sign verify notarize notarize-dmg staple dmg release \
-        credentials doctor
+.PHONY: all build buildinfo run test snapshot copy-check hardened-check publish-check \
+        icon clean install uninstall info sign verify notarize notarize-dmg staple \
+        dmg release credentials doctor
 
 all: build
 
@@ -170,6 +176,20 @@ copy-check: buildinfo
 		Sources/BuildInfo.swift $(UI_SOURCES) Tests/clipboard-check/CopyCheck.swift \
 		-o $(COPY_BIN) $(FRAMEWORKS)
 	@$(COPY_BIN) Tests/sample.md
+
+## 草稿箱连通性验证：用真实账号跑一遍「渲染 → 传图 → 建草稿」
+## 需要 $(ENV_FILE) 里有 AppID / AppSecret
+publish-check:
+	@mkdir -p $(BUILD_DIR)
+	@test -f "$(ENV_FILE)" || { \
+		echo "✗ 找不到 $(ENV_FILE)。需要两行：AppID=xxx 与 AppSecret=xxx"; \
+		echo "  该文件已被 .gitignore 排除，不会被提交。"; \
+		exit 1; }
+	@echo "==> 编译草稿箱验证工具"
+	@$(SWIFTC) $(SWIFT_FLAGS) -target $$(uname -m)-apple-macos$(MIN_MACOS) \
+		$(FRAMEWORKS) $(LIB_SOURCES) Tests/publish-check/PublishCheck.swift \
+		-o $(PUBLISH_BIN)
+	@$(PUBLISH_BIN) $(ENV_FILE)
 
 ## 生成应用图标（需要 python3 + Pillow，缺失时自动跳过）
 icon:

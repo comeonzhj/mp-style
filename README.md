@@ -40,7 +40,52 @@ make run          # 编译并启动
 
 1. 左侧粘贴 Markdown（或 `⌘O` 打开文件）
 2. 右侧调排版参数
-3. `⇧⌘C` 复制，到公众号编辑器 `⌘V` 粘贴
+3. 二选一：
+   - `⇧⌘C` 复制，到公众号编辑器 `⌘V` 粘贴
+   - `⇧⌘P` 直接发布到公众号草稿箱
+
+## 发布到草稿箱
+
+工具栏「发布到草稿箱」打开配置面板，填好 AppID / AppSecret 就能一键写入草稿箱，
+到公众号后台的草稿箱里确认排版后再决定是否群发。
+
+**AppSecret 存在系统钥匙串**，不会被写进任何配置文件。
+
+### 发布前要准备两件事
+
+**1. 拿到 AppID 与 AppSecret**
+「公众号后台 → 设置与开发 → 基本配置」，AppSecret 只在生成时显示一次，忘了就重置。
+
+**2. 把本机公网 IP 加进白名单**
+同一页往下有「IP 白名单」。不加的话接口一律返回 40164 拒绝调用。
+面板里的「测试连接」会立刻告诉你 IP 对不对，报错信息里直接带上当前公网 IP。
+动态 IP 每次变更都要重新添加。
+
+> 草稿箱接口需要**已认证**的公众号。未认证的订阅号会返回 48001，
+> 没有这个权限，只能用复制粘贴那条路。
+
+### 图片会自动搬到公众号图床
+
+公众号对外站图片有防盗链，直接引用外链的草稿发布后图片会变成裂图。
+勾选「把正文里的外链图片上传到公众号」后，程序会下载每张图、
+上传到公众号图床、替换地址。单张失败不会中断整篇，会在日志里标出来。
+
+### 命令行验证
+
+不想开界面时可以直接跑：
+
+```bash
+make publish-check          # 用 .env 里的凭据打一篇测试草稿
+```
+
+凭据放工作区根目录的 `.env`：
+
+```
+AppID=wx1234567890abcdef
+AppSecret=0123456789abcdef0123456789abcdef
+```
+
+该文件已在 `.gitignore` 里排除。引号可有可无，单双引号都会正确处理。
 
 ## 排版规则
 
@@ -136,6 +181,22 @@ ATX 标题 `#`~`######`、段落、软换行（中文自动不补空格）、硬
 > 否则属性会被浏览器提前截断、后面的声明全部失效。
 > 字体名一律用单引号，`StyleKit.css()` 里也有兜底替换。`make test` 会校验这一点。
 
+## 配套 Agent Skill
+
+同一套排版能力也封装成了两个独立的 Agent Skill，**不依赖这个 App**，
+放在 `~/.workbuddy/skills/` 下，装了 Python 3 就能跑：
+
+| Skill | 作用 |
+|---|---|
+| `mp-wechat-style` | Markdown 排版 → 预览 / 复制 / 发布草稿箱。含 Python 版渲染器、主题系统 |
+| `mp-wechat-extract` | 给一篇公众号文章链接，还原它的排版成主题 JSON，可直接给上面那个用 |
+
+两个 Skill 与这个 App **共用同一套主题规格**（字段名与 `ThemeConfig` 一致），
+所以 App 里的排版参数、Skill 里生成的主题、从别人文章萃取的风格，三者可以互相流转。
+
+Python 版渲染器与这个 App 的输出做过逐条比对：内联样式 55 条完全一致，
+正文文本逐字一致。
+
 ## 项目结构
 
 ```
@@ -150,6 +211,8 @@ Sources/
 │   ├── RegexKit.swift        正则缓存与匹配工具
 │   ├── BlockParser.swift     块级解析
 │   └── InlineParser.swift    行内解析
+├── Net/
+│   └── WeChatClient.swift    公众号开放接口（token / 传图 / 草稿）
 ├── Render/                   渲染层（无 UI 依赖，命令行可直接复用）
 │   ├── HexColor.swift        颜色混合 / 淡化 / rgba
 │   ├── StyleKit.swift        ThemeConfig → CSS 声明
@@ -157,6 +220,8 @@ Sources/
 │   └── PlainTextRenderer.swift 纯文本降级输出
 └── UI/                       界面层
     ├── AppState.swift        状态与动作
+    ├── AppState+Publish.swift 发布到草稿箱的流水线
+    ├── PublishSheet.swift    发布配置面板
     ├── RootView.swift        根布局
     ├── EditorPane.swift      左：Markdown 编辑
     ├── PreviewPane.swift     中：WKWebView 预览
@@ -169,6 +234,7 @@ Tests/
 ├── sample.md                 校验用样例
 ├── ui-snapshot/              界面快照工具（make snapshot）
 ├── hardened-check/           强化运行时 + WKWebView JS 自检（make hardened-check）
+├── publish-check/            草稿箱连通性验证（make publish-check）
 └── clipboard-check/          剪贴板验证工具（make copy-check）
 
 scripts/

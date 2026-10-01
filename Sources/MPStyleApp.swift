@@ -23,6 +23,9 @@ struct MPStyleApp: App {
                 Button("导出 HTML…") { state.exportHTML() }
                     .keyboardShortcut("e", modifiers: [.command, .shift])
                 Divider()
+                Button("发布到公众号草稿箱…") { state.showPublishPanel() }
+                    .keyboardShortcut("p", modifiers: [.command, .shift])
+                Divider()
                 Button("打开 Markdown…") { state.openFile() }
                     .keyboardShortcut("o", modifiers: .command)
                 Button("载入示例文档") { state.loadSample() }
