@@ -11,8 +11,11 @@ BUILD="$(date +%Y%m%d.%H%M)"
 
 if git -C "$ROOT" rev-parse --short HEAD >/dev/null 2>&1; then
   GIT_HASH="$(git -C "$ROOT" rev-parse --short HEAD)"
-  GIT_DIRTY="$(git -C "$ROOT" status --porcelain | head -1 | wc -l | tr -d ' ')"
-  [ "$GIT_DIRTY" != "0" ] && GIT_HASH="${GIT_HASH}-dirty"
+  # 只看已跟踪文件的改动。未跟踪文件（构建产物、临时笔记）不该让发布版本号背上 -dirty，
+  # 否则随手放个文件就会污染版本标识，而这个标识是给用户报问题时用的。
+  if [ -n "$(git -C "$ROOT" status --porcelain --untracked-files=no | head -1)" ]; then
+    GIT_HASH="${GIT_HASH}-dirty"
+  fi
 else
   GIT_HASH="nogit"
 fi

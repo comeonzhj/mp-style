@@ -183,19 +183,55 @@ ATX 标题 `#`~`######`、段落、软换行（中文自动不补空格）、硬
 
 ## 配套 Agent Skill
 
-同一套排版能力也封装成了两个独立的 Agent Skill，**不依赖这个 App**，
-放在 `~/.workbuddy/skills/` 下，装了 Python 3 就能跑：
+同一个仓库的 [`skills/`](skills/) 下有两个独立的 Agent Skill，把同样的事交给 AI 助手做。
+**纯 Python 标准库，不依赖这个 App**，装了 Python 3 就能跑：
 
-| Skill | 作用 |
+| Skill | 做什么 |
 |---|---|
-| `mp-wechat-style` | Markdown 排版 → 预览 / 复制 / 发布草稿箱。含 Python 版渲染器、主题系统 |
-| `mp-wechat-extract` | 给一篇公众号文章链接，还原它的排版成主题 JSON，可直接给上面那个用 |
+| [`mp-wechat-style`](skills/mp-wechat-style/SKILL.md) | Markdown 排版 → 预览 / 一键复制 / 发布到草稿箱 |
+| [`mp-wechat-extract`](skills/mp-wechat-extract/SKILL.md) | 给一篇公众号文章链接，还原它的排版成主题 JSON |
 
-两个 Skill 与这个 App **共用同一套主题规格**（字段名与 `ThemeConfig` 一致），
-所以 App 里的排版参数、Skill 里生成的主题、从别人文章萃取的风格，三者可以互相流转。
+安装：
 
-Python 版渲染器与这个 App 的输出做过逐条比对：内联样式 55 条完全一致，
-正文文本逐字一致。
+```bash
+scripts/install-skills.sh          # 装到 ~/.workbuddy/skills
+SKILLS_DIR=~/.claude/skills scripts/install-skills.sh   # 装到别处
+```
+
+```bash
+SKILL=~/.workbuddy/skills/mp-wechat-style
+
+python3 $SKILL/scripts/mp-preview.py 文章.md        # 排版并预览
+python3 $SKILL/scripts/mp-copy.py 文章.md           # 复制，去编辑器 ⌘V 粘贴
+python3 $SKILL/scripts/mp-publish.py 文章.md --cover 封面.jpg   # 直接进草稿箱
+```
+
+### 三边共用一套主题规格
+
+App 里的排版参数、Skill 里生成的主题、从别人文章萃取出的风格，
+是同一份 JSON（字段名与 `ThemeConfig` 一致），可以互相流转。
+完整字段说明见 [`skills/mp-wechat-style/references/theme-spec.md`](skills/mp-wechat-style/references/theme-spec.md)。
+
+### 两个渲染器的输出是一致的
+
+Skill 里的 Python 渲染器是 App 那套 Swift 渲染器的完整移植，做过逐条比对：
+同一份覆盖全部语法的文稿，**内联样式 55 条完全一致，正文文本逐字一致**。
+换工具不会换掉你的排版。
+
+### 萃取排版
+
+```bash
+agent-browser open "https://mp.weixin.qq.com/s/xxxx"
+agent-browser wait --load networkidle
+agent-browser get html "#js_content" > /tmp/article.html
+agent-browser close
+
+python3 ~/.workbuddy/skills/mp-wechat-extract/scripts/extract.py \
+  /tmp/article.html -o ~/.mp-wechat/themes/某某风格.json --name "某某风格"
+```
+
+公众号正文靠 JS 渲染，所以用真浏览器取 HTML；排版全在**内联样式**里，
+拿到 `#js_content` 的 HTML 就等于拿到完整规格。一条命令也行：`extract.py --url "<链接>"`。
 
 ## 项目结构
 
@@ -241,7 +277,13 @@ scripts/
 ├── gen-buildinfo.sh              版本号注入
 ├── make-icon.py                  生成 AppIcon.icns
 ├── make-dmg.py                   生成带拖拽引导的 DMG
+├── install-skills.sh             把 skills/ 装到本机技能目录
 └── store-notary-credentials.sh   交互式存入公证凭据
+
+skills/                        见上方「配套 Agent Skill」
+├── README.md
+├── mp-wechat-style/           Markdown 排版（Python，不依赖 App）
+└── mp-wechat-extract/         从文章萃取主题
 ```
 
 **分层原则**：`Markdown` / `Render` / `Model` 三层不依赖任何 UI 框架，

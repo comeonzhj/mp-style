@@ -12,6 +12,10 @@ build/
 *.xcworkspace
 DerivedData/
 
+# Python（Agent Skills）
+__pycache__/
+*.py[cod]
+
 # 生成文件
 Sources/BuildInfo.swift
 build/AppIcon.iconset/
