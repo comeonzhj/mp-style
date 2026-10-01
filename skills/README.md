@@ -55,9 +55,11 @@ python3 $SKILL/scripts/mp-preview.py 我的文章.md --theme 某某风格
 
 ## 为什么 Skills 版和 App 版长得一样
 
-Skill 里的 Python 渲染器是 App 那套 Swift 渲染器的完整移植。两者做过逐条比对：
-同一份覆盖全部语法的文稿，**内联样式 55 条完全一致，正文文本逐字一致**。
-换工具不会换掉你的排版。
+Skill 里的 Python 渲染器是 App 那套 Swift 渲染器的完整移植，两者必须对同一份 Markdown
+产出相同的内联样式。仓库根目录的 `make skills-test` 会逐条比对两份输出，
+已经进了 CI —— 只改一边会立刻红。
+
+当前基线：112 条内联样式、1043 字正文，逐条一致。
 
 ## 目录
 

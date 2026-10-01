@@ -214,9 +214,12 @@ App 里的排版参数、Skill 里生成的主题、从别人文章萃取出的�
 
 ### 两个渲染器的输出是一致的
 
-Skill 里的 Python 渲染器是 App 那套 Swift 渲染器的完整移植，做过逐条比对：
-同一份覆盖全部语法的文稿，**内联样式 55 条完全一致，正文文本逐字一致**。
-换工具不会换掉你的排版。
+Skill 里的 Python 渲染器是 App 那套 Swift 渲染器的完整移植。两者必须对同一份 Markdown
+产出相同的内联样式 —— 只改一边就会造成「同一个主题在 App 和 Skill 里排出来不一样」，
+而这种偏差肉眼很难发现。
+
+`make skills-test` 会把两份输出逐条比对，这条检查已经进了 CI，改坏哪一边都会立刻红。
+当前基线：112 条内联样式、1043 字正文，逐条一致。
 
 ### 萃取排版
 
@@ -295,6 +298,7 @@ skills/                        见上方「配套 Agent Skill」
 make build        # 编译出 build/MPStyle.app（通用二进制，自动用 Developer ID 签名）
 make run          # 编译并启动
 make test         # 渲染校验 + 规则断言
+make skills-test  # Agent Skill 语法校验 + 双渲染器输出一致性
 make snapshot     # 离屏渲染界面 PNG 到 Tests/out/ui.png
 make hardened-check  # 验证强化运行时下 WKWebView 的 JS 仍能执行
 make copy-check   # 把渲染结果写进剪贴板，验证 public.html

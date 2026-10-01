@@ -37,6 +37,8 @@ HARDENED_BIN := $(BUILD_DIR)/hardened-check
 PUBLISH_BIN  := $(BUILD_DIR)/publish-check
 # 草稿箱凭据文件。里面是 AppID / AppSecret，已在 .gitignore 里排除
 ENV_FILE     ?= .env
+# Skill 脚本用的 Python 3。缺失时 skills-test 会跳过而不是失败
+SKILLS_PY    ?= python3
 
 # 除 App 入口外的全部源码。命令行工具不能带上 MPStyleApp.swift，否则两个 @main 冲突。
 LIB_SOURCES  = $(filter-out Sources/MPStyleApp.swift,$(ALL_SOURCES))
@@ -101,7 +103,7 @@ NOTARIZE_ZIP := $(BUILD_DIR)/$(APP_NAME)-$(VERSION)-notarize.zip
 DMG          := $(BUILD_DIR)/$(APP_NAME)-$(VERSION).dmg
 DMG_STAGE    := $(BUILD_DIR)/dmg-stage
 
-.PHONY: all build buildinfo run test snapshot copy-check hardened-check publish-check \
+.PHONY: all build buildinfo run test snapshot copy-check hardened-check publish-check skills-test \
         icon clean install uninstall info sign verify notarize notarize-dmg staple \
         dmg release credentials doctor
 
@@ -151,12 +153,17 @@ run: build
 # ══════════════════════════════════════════════════════════════════════
 
 ## 命令行渲染测试：把样例 Markdown 渲染成 HTML，便于脱离 GUI 校验排版
-test: buildinfo
-	@mkdir -p $(BUILD_DIR) Tests/out
-	@echo "==> 编译渲染命令行工具"
-	@$(SWIFTC) -disable-sandbox -swift-version 5 -O $(CORE_SOURCES) Tests/main.swift -o $(TEST_BIN)
+## 渲染校验：编译命令行工具跑一遍样例，断言排版规则
+test: $(TEST_BIN)
+	@mkdir -p Tests/out
 	@$(TEST_BIN) Tests/sample.md Tests/out/preview.html
 	@echo "==> 输出: Tests/out/preview.html"
+
+## 渲染命令行工具（test 与 skills-test 共用，避免重复编译）
+$(TEST_BIN): buildinfo
+	@mkdir -p $(BUILD_DIR)
+	@echo "==> 编译渲染命令行工具"
+	@$(SWIFTC) -disable-sandbox -swift-version 5 -O $(CORE_SOURCES) Tests/main.swift -o $@
 
 ## 界面快照：离屏渲染真实窗口，产出一张界面 PNG（开发期校验布局用）
 snapshot: buildinfo
@@ -190,6 +197,24 @@ publish-check:
 		$(FRAMEWORKS) $(LIB_SOURCES) Tests/publish-check/PublishCheck.swift \
 		-o $(PUBLISH_BIN)
 	@$(PUBLISH_BIN) $(ENV_FILE)
+
+## 校验 Agent Skills：语法 + 与 Swift 渲染器的输出一致性
+##
+## 两个渲染器服务于同一套主题规格，只改一边就会让「同一个主题在 App 和 Skill 里
+## 排出来不一样」，这种偏差肉眼很难发现，所以守在这里。
+skills-test: $(TEST_BIN)
+	@command -v $(SKILLS_PY) >/dev/null 2>&1 || { \
+		echo "✗ 找不到 $(SKILLS_PY)，跳过（Skill 需要 Python 3）"; exit 0; }
+	@echo "==> 校验 Skill 脚本语法"
+	@$(SKILLS_PY) -m compileall -q skills/ >/dev/null
+	@find skills -name __pycache__ -type d -exec rm -rf {} + 2>/dev/null || true
+	@echo "==> 校验两个渲染器输出一致"
+	@mkdir -p $(BUILD_DIR)
+	@$(SKILLS_PY) skills/mp-wechat-style/scripts/mp-render.py \
+		Tests/sample.md --fragment -o $(BUILD_DIR)/skill-render.html >/dev/null
+	@$(TEST_BIN) Tests/sample.md $(BUILD_DIR)/swift-render.html >/dev/null
+	@$(SKILLS_PY) scripts/check-render-parity.py \
+		$(BUILD_DIR)/swift-render.html $(BUILD_DIR)/skill-render.html
 
 ## 生成应用图标（需要 python3 + Pillow，缺失时自动跳过）
 icon:

@@ -18,6 +18,9 @@ jobs:
       - name: 渲染校验（含排版规则断言）
         run: make test
 
+      - name: Agent Skill 语法 + 双渲染器一致性
+        run: make skills-test
+
       - name: 强化运行时自检
         run: make hardened-check
 
